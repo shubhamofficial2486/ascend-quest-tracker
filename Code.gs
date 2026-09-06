@@ -166,6 +166,8 @@ function jsonOut(obj) {
   return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
 }
 
+const CODE_VERSION = 'fix-2-text-dates';
+
 // doGet exists mainly so you can sanity-check the deployment by pasting
 // ?action=ping or ?action=getState straight into a browser address bar.
 // The app itself calls everything via doPost (see below) — GET requests to
@@ -176,7 +178,7 @@ function doGet(e) {
   const action = (e.parameter && e.parameter.action) || 'getState';
   ensureSheets();
   try {
-    if (action === 'ping') return jsonOut({ ok: true, time: new Date().toISOString() });
+    if (action === 'ping') return jsonOut({ ok: true, time: new Date().toISOString(), version: CODE_VERSION });
     if (action === 'getState') return jsonOut({ ok: true, data: getFullState() });
     return jsonOut({ ok: false, error: 'unknown action: ' + action });
   } catch (err) {
@@ -196,7 +198,7 @@ function doPost(e) {
 
   try {
     if (action === 'ping') {
-      return jsonOut({ ok: true, time: new Date().toISOString() });
+      return jsonOut({ ok: true, time: new Date().toISOString(), version: CODE_VERSION });
 
     } else if (action === 'getState') {
       return jsonOut({ ok: true, data: getFullState() });

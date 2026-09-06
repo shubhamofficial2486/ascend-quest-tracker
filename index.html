@@ -678,7 +678,7 @@ Include 1-4 tasks per day for all 7 days (Mon-Sun), exp between 5 and 25 based o
         body: JSON.stringify({ action:'ping' })
       });
       const data = await res.json();
-      toast(data.ok ? 'Connection OK' : 'Error: ' + data.error);
+      toast(data.ok ? ('Connection OK — backend version: ' + (data.version || 'unknown/old')) : 'Error: ' + data.error);
     }catch(e){
       toast('Connection failed');
     }

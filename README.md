@@ -1,3 +1,6 @@
+# Web App URL : 
+https://script.google.com/macros/s/AKfycbwOYzteYmhXaZaLp6Nk085l10Isg3WS392KvUvZ-N4Zb2i9Atx1i_PA8oaYYHJKkUUmFQ/exec
+
 # Ascend — Solo Leveling Quest Tracker
 
 A self-improvement tracker themed after Solo Leveling's "System": set long-term
