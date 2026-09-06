@@ -87,9 +87,22 @@ function sheetToObjects(sheet) {
   return rows;
 }
 
+// Fields that must never be auto-converted to a Sheets Date type. Prefixing
+// with an apostrophe forces literal text on write (a standard Sheets/Apps
+// Script trick) — this works regardless of the column's display format or
+// whether the tab existed before this fix, unlike setNumberFormat alone.
+const TEXT_FORCE_FIELDS = new Set(['day', 'date', 'weekStart', 'weekEnd', 'createdAt', 'completedAt', 'updatedAt']);
+
+function coerceForSheet(field, value) {
+  if (TEXT_FORCE_FIELDS.has(field) && value !== '' && value !== undefined && value !== null) {
+    return "'" + value;
+  }
+  return value;
+}
+
 function appendObject(sheet, obj) {
   const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
-  const row = headers.map(h => (obj[h] !== undefined ? obj[h] : ''));
+  const row = headers.map(h => coerceForSheet(h, obj[h] !== undefined ? obj[h] : ''));
   sheet.appendRow(row);
 }
 
@@ -101,7 +114,7 @@ function updateRowByField(sheet, idField, idValue, updates) {
     if (values[i][idCol] === idValue) {
       Object.keys(updates).forEach(k => {
         const col = headers.indexOf(k);
-        if (col > -1) sheet.getRange(i + 1, col + 1).setValue(updates[k]);
+        if (col > -1) sheet.getRange(i + 1, col + 1).setValue(coerceForSheet(k, updates[k]));
       });
       return true;
     }
@@ -198,6 +211,12 @@ function doPost(e) {
       return jsonOut({ ok: true, id, data: getFullState() });
 
     } else if (action === 'importWeek') {
+      // If this goal already has an active plan, archive it first — otherwise
+      // re-importing (or importing a fresh week) leaves the old plan's tasks
+      // sitting alongside the new ones, duplicating everything on Today's Quest.
+      const existingActive = sheetToObjects(sheets.plans).filter(p => p.goalId === body.goalId && p.status === 'active');
+      existingActive.forEach(p => updateRowByField(sheets.plans, 'id', p.id, { status: 'superseded' }));
+
       const planId = Utilities.getUuid();
       appendObject(sheets.plans, {
         id: planId, goalId: body.goalId, weekStart: body.weekStart,

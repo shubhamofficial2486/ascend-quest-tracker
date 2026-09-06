@@ -1,4 +1,3 @@
-
 # Ascend — Solo Leveling Quest Tracker
 
 A self-improvement tracker themed after Solo Leveling's "System": set long-term

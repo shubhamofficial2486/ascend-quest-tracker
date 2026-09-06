@@ -302,9 +302,13 @@
     return d.toISOString().slice(0,10);
   }
   function fmtDate(iso){
+    if(!iso) return '';
+    const datePart = String(iso).slice(0,10); // handles plain 'YYYY-MM-DD' and full ISO timestamps alike
     try{
-      return new Date(iso + 'T00:00:00').toLocaleDateString(undefined, { weekday:'short', month:'short', day:'numeric' });
-    }catch(e){ return iso; }
+      const d = new Date(datePart + 'T00:00:00');
+      if(isNaN(d.getTime())) return String(iso);
+      return d.toLocaleDateString(undefined, { weekday:'short', month:'short', day:'numeric' });
+    }catch(e){ return String(iso); }
   }
 
   // ---------- level math (mirrors backend) ----------
@@ -433,7 +437,8 @@
   function renderDashboard(){
     $('#todayLabel').textContent = fmtDate(todayISO());
     const today = todayISO();
-    const todays = (STATE.tasks||[]).filter(t => t.date === today);
+    const activePlanIds = new Set((STATE.plans||[]).filter(p => p.status === 'active').map(p => p.id));
+    const todays = (STATE.tasks||[]).filter(t => t.date === today && activePlanIds.has(t.weeklyPlanId));
     const list = $('#dashboardList');
 
     if(!BACKEND_URL){
