@@ -1,0 +1,690 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Ascend — Quest Tracker</title>
+
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#070B14">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Ascend">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@600;800&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+
+<style>
+  :root{
+    --bg:#070B14; --panel:#0D1220; --panel-2:#111830; --line:#1E2A45;
+    --blue:#3EA6FF; --violet:#8B5CF6; --gold:#F5C242; --danger:#FF5C6A;
+    --text:#E7ECFB; --muted:#7A88AE;
+    --e:#8A93A6; --d:#4FD17A; --c:#3EA6FF; --b:#8B5CF6; --a:#F5822D; --s:#F5C242;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html,body{ margin:0; padding:0; background:var(--bg); color:var(--text);
+    font-family:'Rajdhani',sans-serif; min-height:100vh; }
+  body{
+    background:
+      radial-gradient(ellipse at 20% -10%, rgba(139,92,246,.18), transparent 45%),
+      radial-gradient(ellipse at 100% 0%, rgba(62,166,255,.14), transparent 45%),
+      var(--bg);
+    padding-bottom:84px;
+  }
+  h1,h2,h3{ font-family:'Orbitron',sans-serif; margin:0; }
+  .num{ font-family:'Orbitron',sans-serif; }
+
+  .wrap{ max-width:520px; margin:0 auto; padding:18px 16px 0; }
+
+  /* ---------- top bar: level / rank / exp ---------- */
+  .topbar{ display:flex; align-items:center; gap:14px; padding:16px;
+    background:linear-gradient(135deg, rgba(139,92,246,.12), rgba(62,166,255,.06));
+    border:1px solid var(--line); clip-path:polygon(0 0,100% 0,100% calc(100% - 14px),calc(100% - 14px) 100%,0 100%);
+    margin-bottom:16px; }
+  .rank-badge{ flex:none; width:54px; height:54px; border-radius:50%; display:flex; align-items:center; justify-content:center;
+    font-family:'Orbitron',sans-serif; font-weight:800; font-size:22px; border:2px solid currentColor; }
+  .lvl-block{ flex:1; min-width:0; }
+  .lvl-row{ display:flex; align-items:baseline; justify-content:space-between; margin-bottom:6px; }
+  .lvl-row .lv{ font-size:20px; font-weight:800; letter-spacing:.03em; }
+  .lvl-row .expnum{ font-size:12px; color:var(--muted); }
+  .expbar{ height:8px; background:#0A0F1D; border:1px solid var(--line); border-radius:5px; overflow:hidden; }
+  .expbar-fill{ height:100%; background:linear-gradient(90deg, var(--blue), var(--violet)); transition:width .5s ease; }
+
+  /* ---------- tabs ---------- */
+  .tabs{ position:fixed; bottom:0; left:0; right:0; display:flex; background:rgba(7,11,20,.92);
+    backdrop-filter:blur(10px); border-top:1px solid var(--line); z-index:20; padding-bottom:env(safe-area-inset-bottom); }
+  .tab{ flex:1; padding:12px 4px 10px; text-align:center; color:var(--muted); font-size:11px;
+    letter-spacing:.04em; text-transform:uppercase; font-weight:600; border:none; background:none; cursor:pointer; }
+  .tab .icon{ font-size:20px; display:block; margin-bottom:2px; }
+  .tab.active{ color:var(--blue); }
+
+  .screen{ display:none; }
+  .screen.active{ display:block; }
+
+  /* ---------- system panel ---------- */
+  .panel{ background:var(--panel); border:1px solid var(--line); padding:16px;
+    clip-path:polygon(0 0,100% 0,100% calc(100% - 10px),calc(100% - 10px) 100%,0 100%);
+    margin-bottom:14px; position:relative; }
+  .panel::before{ content:''; position:absolute; top:0; left:0; width:18px; height:2px; background:var(--blue); }
+  .panel::after{ content:''; position:absolute; top:0; left:0; width:2px; height:18px; background:var(--blue); }
+  .panel h2{ font-size:13px; letter-spacing:.14em; text-transform:uppercase; color:var(--blue); margin-bottom:12px; }
+  .panel h2 .sub{ color:var(--muted); font-weight:500; font-size:11px; text-transform:none; letter-spacing:0; margin-left:6px; font-family:'Rajdhani',sans-serif;}
+
+  .empty{ color:var(--muted); font-size:13.5px; padding:18px 4px; text-align:center; }
+
+  /* ---------- stat bars ---------- */
+  .stat-row{ display:flex; align-items:center; gap:10px; margin-bottom:12px; }
+  .stat-row:last-child{ margin-bottom:0; }
+  .stat-key{ width:34px; font-family:'Orbitron',sans-serif; font-size:11px; font-weight:700; color:var(--text); flex:none; }
+  .stat-bar{ flex:1; height:10px; background:#0A0F1D; border:1px solid var(--line); border-radius:2px; overflow:hidden; }
+  .stat-fill{ height:100%; transition:width .5s ease; }
+  .stat-lvl{ width:34px; text-align:right; font-size:12px; color:var(--muted); flex:none; }
+
+  /* ---------- quest cards ---------- */
+  .quest{ display:flex; align-items:flex-start; gap:12px; padding:12px 0; border-bottom:1px solid var(--line); }
+  .quest:last-child{ border-bottom:none; }
+  .quest-check{ flex:none; width:26px; height:26px; border-radius:6px; border:2px solid var(--muted);
+    display:flex; align-items:center; justify-content:center; cursor:pointer; font-size:14px; margin-top:2px; }
+  .quest-check.done{ background:var(--d); border-color:var(--d); color:#06140A; }
+  .quest-check.skipped{ border-color:var(--danger); color:var(--danger); }
+  .quest-body{ flex:1; min-width:0; }
+  .quest-title{ font-weight:600; font-size:15px; }
+  .quest-title.done{ text-decoration:line-through; color:var(--muted); }
+  .quest-detail{ font-size:13px; color:var(--muted); margin-top:2px; }
+  .quest-meta{ display:flex; gap:8px; margin-top:6px; align-items:center; }
+  .badge{ font-size:10.5px; padding:2px 7px; border-radius:10px; border:1px solid var(--line); color:var(--muted); font-family:'Orbitron',sans-serif; }
+  .badge.exp{ color:var(--gold); border-color:rgba(245,194,66,.4); }
+  .skip-link{ font-size:11px; color:var(--muted); text-decoration:underline; cursor:pointer; background:none; border:none; padding:0; }
+
+  /* ---------- goal cards ---------- */
+  .goal-card{ margin-bottom:12px; padding-bottom:12px; border-bottom:1px solid var(--line); }
+  .goal-card:last-child{ border-bottom:none; margin-bottom:0; padding-bottom:0; }
+  .goal-top{ display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; }
+  .goal-title{ font-weight:700; font-size:15.5px; }
+  .goal-cat{ font-size:10.5px; padding:3px 8px; border-radius:10px; font-family:'Orbitron',sans-serif; font-weight:700; }
+  .goal-detail{ font-size:12.5px; color:var(--muted); margin-bottom:8px; }
+  .goal-progress{ font-size:11.5px; color:var(--muted); margin-bottom:8px; }
+  .goal-actions{ display:flex; gap:8px; flex-wrap:wrap; }
+
+  /* ---------- forms / buttons ---------- */
+  label{ display:block; font-size:11.5px; color:var(--muted); text-transform:uppercase; letter-spacing:.06em; margin:10px 0 5px; }
+  label:first-child{ margin-top:0; }
+  input[type=text], textarea, select{ width:100%; background:var(--panel-2); border:1px solid var(--line);
+    color:var(--text); font-family:'Rajdhani',sans-serif; font-size:15px; padding:10px 12px; border-radius:6px; }
+  textarea{ resize:vertical; min-height:90px; font-family:ui-monospace,monospace; font-size:12.5px; }
+  input:focus, textarea:focus, select:focus{ outline:none; border-color:var(--blue); }
+
+  button{ font-family:'Rajdhani',sans-serif; font-weight:700; font-size:14px; border:none;
+    padding:10px 16px; cursor:pointer; border-radius:6px; letter-spacing:.02em; }
+  .btn-primary{ background:linear-gradient(135deg, var(--blue), var(--violet)); color:#05070D; }
+  .btn-primary:disabled{ opacity:.4; }
+  .btn-ghost{ background:transparent; border:1px solid var(--line); color:var(--text); }
+  .btn-ghost:hover{ border-color:var(--blue); }
+  .btn-danger{ background:transparent; border:1px solid rgba(255,92,106,.4); color:var(--danger); }
+  .btn-sm{ padding:7px 12px; font-size:12.5px; }
+  .btn-row{ display:flex; gap:8px; margin-top:12px; flex-wrap:wrap; }
+  .btn-block{ width:100%; }
+
+  .note{ font-size:12px; color:var(--muted); line-height:1.6; margin-top:10px; }
+  .note strong{ color:var(--text); }
+  a{ color: var(--blue); }
+
+  /* ---------- toast / system announcement ---------- */
+  #toastLayer{ position:fixed; top:0; left:0; right:0; display:flex; flex-direction:column; align-items:center;
+    gap:8px; padding-top:14px; z-index:100; pointer-events:none; }
+  .toast{ background:rgba(13,18,32,.95); border:1px solid var(--blue); color:var(--text);
+    padding:10px 18px; border-radius:6px; font-size:13.5px; font-weight:600;
+    box-shadow:0 0 18px rgba(62,166,255,.35); animation:toastIn .25s ease, toastOut .3s ease 2.4s forwards; }
+  .toast.levelup{ border-color:var(--gold); box-shadow:0 0 24px rgba(245,194,66,.5); color:var(--gold);
+    font-family:'Orbitron',sans-serif; font-size:14px; text-align:center; }
+  @keyframes toastIn{ from{ opacity:0; transform:translateY(-10px);} to{ opacity:1; transform:translateY(0);} }
+  @keyframes toastOut{ to{ opacity:0; transform:translateY(-8px);} }
+
+  .header-row{ display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; }
+  .eyebrow{ font-family:'Orbitron',sans-serif; font-size:10.5px; letter-spacing:.16em; text-transform:uppercase; color:var(--muted); }
+  .conn-dot{ width:8px; height:8px; border-radius:50%; background:var(--muted); display:inline-block; margin-right:6px; }
+  .conn-dot.ok{ background:var(--d); box-shadow:0 0 6px var(--d); }
+  .conn-dot.err{ background:var(--danger); }
+  .conn-text{ font-size:11px; color:var(--muted); }
+
+  .modal-overlay{ position:fixed; inset:0; background:rgba(5,7,13,.8); z-index:50; display:flex;
+    align-items:flex-end; justify-content:center; }
+  .modal{ background:var(--panel); border:1px solid var(--line); border-top:2px solid var(--blue);
+    width:100%; max-width:520px; max-height:86vh; overflow-y:auto; padding:18px 16px calc(18px + env(safe-area-inset-bottom));
+    border-radius:14px 14px 0 0; }
+  .modal-close{ float:right; background:none; border:none; color:var(--muted); font-size:20px; cursor:pointer; padding:0; line-height:1; }
+</style>
+</head>
+<body>
+
+<div id="toastLayer"></div>
+
+<div class="wrap">
+
+  <div class="header-row">
+    <div class="eyebrow">◈ The System</div>
+    <div><span class="conn-dot" id="connDot"></span><span class="conn-text" id="connText">not connected</span></div>
+  </div>
+
+  <div class="topbar">
+    <div class="rank-badge" id="rankBadge" style="color:var(--e)">E</div>
+    <div class="lvl-block">
+      <div class="lvl-row">
+        <span class="lv num" id="lvlText">Lv. 1</span>
+        <span class="expnum num" id="expText">0 / 40 EXP</span>
+      </div>
+      <div class="expbar"><div class="expbar-fill" id="expFill" style="width:0%"></div></div>
+    </div>
+  </div>
+
+  <!-- ===================== DASHBOARD ===================== -->
+  <div class="screen active" id="screen-dashboard">
+    <div class="panel">
+      <h2>Daily Quest <span class="sub" id="todayLabel"></span></h2>
+      <div id="dashboardList"><div class="empty">Connect your Sheet in Settings to begin.</div></div>
+    </div>
+
+    <div class="panel">
+      <h2>Hunter Status</h2>
+      <div class="stat-row"><span class="stat-key">STR</span><div class="stat-bar"><div class="stat-fill" style="background:var(--d)" data-stat="STR"></div></div><span class="stat-lvl" data-statlvl="STR">Lv1</span></div>
+      <div class="stat-row"><span class="stat-key">INT</span><div class="stat-bar"><div class="stat-fill" style="background:var(--c)" data-stat="INT"></div></div><span class="stat-lvl" data-statlvl="INT">Lv1</span></div>
+      <div class="stat-row"><span class="stat-key">VIT</span><div class="stat-bar"><div class="stat-fill" style="background:var(--a)" data-stat="VIT"></div></div><span class="stat-lvl" data-statlvl="VIT">Lv1</span></div>
+      <div class="stat-row"><span class="stat-key">AGI</span><div class="stat-bar"><div class="stat-fill" style="background:var(--b)" data-stat="AGI"></div></div><span class="stat-lvl" data-statlvl="AGI">Lv1</span></div>
+      <div class="stat-row"><span class="stat-key">PER</span><div class="stat-bar"><div class="stat-fill" style="background:var(--s)" data-stat="PER"></div></div><span class="stat-lvl" data-statlvl="PER">Lv1</span></div>
+    </div>
+  </div>
+
+  <!-- ===================== MAIN QUESTS (GOALS) ===================== -->
+  <div class="screen" id="screen-goals">
+    <div class="panel">
+      <h2>Main Quests <span class="sub">long-term goals</span></h2>
+      <div id="goalsList"><div class="empty">No main quests yet — add one below.</div></div>
+      <button class="btn-primary btn-block" id="newGoalBtn" style="margin-top:14px;">+ New Main Quest</button>
+    </div>
+  </div>
+
+  <!-- ===================== STATUS / HISTORY ===================== -->
+  <div class="screen" id="screen-history">
+    <div class="panel">
+      <h2>Hunter Profile</h2>
+      <div id="profileBlock" class="note"></div>
+    </div>
+    <div class="panel">
+      <h2>Quest Log History</h2>
+      <div id="historyList"><div class="empty">Completed weeks will show up here.</div></div>
+    </div>
+  </div>
+
+  <!-- ===================== SETTINGS ===================== -->
+  <div class="screen" id="screen-settings">
+    <div class="panel">
+      <h2>Gate Connection</h2>
+      <label>Apps Script Web App URL</label>
+      <input type="text" id="backendUrlInput" placeholder="https://script.google.com/macros/s/.../exec">
+      <div class="btn-row">
+        <button class="btn-primary" id="saveBackendBtn">Save & Connect</button>
+        <button class="btn-ghost" id="testBackendBtn">Test</button>
+      </div>
+      <p class="note">Deploy the included <strong>Code.gs</strong> as a Web App on your own Google Sheet (Execute as: Me, Access: Anyone), then paste the <code>/exec</code> URL above. Your data lives entirely in your own Sheet.</p>
+    </div>
+    <div class="panel">
+      <h2>About the Stats</h2>
+      <p class="note">
+        <strong>STR</strong> — Strength / Fitness&nbsp;&nbsp;
+        <strong>INT</strong> — Intellect / Study & Learning&nbsp;&nbsp;
+        <strong>VIT</strong> — Vitality / Health & Habits&nbsp;&nbsp;
+        <strong>AGI</strong> — Agility / Skill Practice&nbsp;&nbsp;
+        <strong>PER</strong> — Perception / Creativity & Focus<br><br>
+        Each Main Quest is tagged with one stat. Completing its daily tasks feeds EXP into that stat — and into your overall Hunter Level.
+      </p>
+    </div>
+  </div>
+
+</div>
+
+<div class="tabs">
+  <button class="tab active" data-screen="dashboard"><span class="icon">⚔</span>Today</button>
+  <button class="tab" data-screen="goals"><span class="icon">◈</span>Main Quests</button>
+  <button class="tab" data-screen="history"><span class="icon">📜</span>Status</button>
+  <button class="tab" data-screen="settings"><span class="icon">⚙</span>Settings</button>
+</div>
+
+<script>
+(function(){
+  const STAT_LABELS = {
+    STR: 'Strength / Fitness',
+    INT: 'Intellect / Study & Learning',
+    VIT: 'Vitality / Health & Habits',
+    AGI: 'Agility / Skill Practice',
+    PER: 'Perception / Creativity & Focus'
+  };
+  const RANK_COLOR = { E:'var(--e)', D:'var(--d)', C:'var(--c)', B:'var(--b)', A:'var(--a)', S:'var(--s)' };
+
+  let BACKEND_URL = localStorage.getItem('sl_backend_url') || '';
+  let STATE = { profile:{level:1,totalExp:0,rank:'E'}, stats:[], goals:[], plans:[], tasks:[] };
+  let prevLevel = 1;
+
+  const $ = (sel) => document.querySelector(sel);
+  const $$ = (sel) => Array.from(document.querySelectorAll(sel));
+
+  // ---------- toast ----------
+  function toast(msg, cls){
+    const el = document.createElement('div');
+    el.className = 'toast' + (cls ? (' ' + cls) : '');
+    el.textContent = msg;
+    $('#toastLayer').appendChild(el);
+    setTimeout(()=> el.remove(), 2800);
+  }
+
+  // ---------- tabs ----------
+  $$('.tab').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      $$('.tab').forEach(b=>b.classList.remove('active'));
+      $$('.screen').forEach(s=>s.classList.remove('active'));
+      btn.classList.add('active');
+      $('#screen-' + btn.dataset.screen).classList.add('active');
+    });
+  });
+
+  // ---------- date helpers ----------
+  function todayISO(){
+    const d = new Date();
+    return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+  }
+  function nextMonday(){
+    const d = new Date();
+    const day = d.getDay();
+    const add = day === 1 ? 0 : ((8 - day) % 7 || 7);
+    d.setDate(d.getDate() + (day === 0 ? 1 : add));
+    return d.toISOString().slice(0,10);
+  }
+  function fmtDate(iso){
+    try{
+      return new Date(iso + 'T00:00:00').toLocaleDateString(undefined, { weekday:'short', month:'short', day:'numeric' });
+    }catch(e){ return iso; }
+  }
+
+  // ---------- level math (mirrors backend) ----------
+  function levelFromExp(exp){ return Math.max(1, Math.floor(Math.sqrt(exp/40)) + 1); }
+  function expForLevel(lvl){ return 40 * Math.pow(lvl - 1, 2); }
+
+  // ---------- API ----------
+  async function apiGet(action, params){
+    const url = new URL(BACKEND_URL);
+    url.searchParams.set('action', action);
+    Object.entries(params||{}).forEach(([k,v])=> url.searchParams.set(k, v));
+    const res = await fetch(url.toString());
+    return res.json();
+  }
+  async function apiPost(action, payload){
+    const res = await fetch(BACKEND_URL, {
+      method:'POST',
+      headers: {'Content-Type':'text/plain;charset=utf-8'}, // avoids a CORS preflight against Apps Script
+      body: JSON.stringify(Object.assign({ action }, payload || {}))
+    });
+    return res.json();
+  }
+
+  function setConn(ok, text){
+    $('#connDot').classList.toggle('ok', ok === true);
+    $('#connDot').classList.toggle('err', ok === false);
+    $('#connText').textContent = text;
+  }
+
+  async function loadState(){
+    if(!BACKEND_URL){
+      setConn(false, 'not connected — set up in Settings');
+      return;
+    }
+    setConn(null, 'syncing…');
+    try{
+      const res = await apiGet('getState');
+      if(res.ok){
+        prevLevel = STATE.profile ? Number(STATE.profile.level) : 1;
+        STATE = res.data;
+        setConn(true, 'connected');
+        renderAll();
+      } else {
+        setConn(false, 'error: ' + res.error);
+      }
+    }catch(e){
+      setConn(false, 'connection failed');
+    }
+  }
+
+  function applyResult(res){
+    if(!res || !res.ok) { toast(res && res.error ? res.error : 'Action failed'); return false; }
+    const newLevel = res.profile ? Number(res.profile.level) : (res.data && res.data.profile ? Number(res.data.profile.level) : prevLevel);
+    if(res.data) STATE = res.data;
+    if(newLevel > prevLevel){
+      toast('LEVEL UP — Lv.' + newLevel, 'levelup');
+    }
+    prevLevel = newLevel;
+    renderAll();
+    return true;
+  }
+
+  // ---------- rendering ----------
+  function renderAll(){
+    renderProfile();
+    renderStats();
+    renderDashboard();
+    renderGoals();
+    renderHistory();
+  }
+
+  function renderProfile(){
+    const p = STATE.profile || { level:1, totalExp:0, rank:'E' };
+    const level = Number(p.level) || 1;
+    const totalExp = Number(p.totalExp) || 0;
+    const rank = p.rank || rankFromLevel(level);
+    const curFloor = expForLevel(level);
+    const nextCeil = expForLevel(level+1);
+    const pct = Math.min(100, Math.max(0, ((totalExp - curFloor) / (nextCeil - curFloor)) * 100));
+
+    $('#lvlText').textContent = 'Lv. ' + level;
+    $('#expText').textContent = totalExp + ' / ' + nextCeil + ' EXP';
+    $('#expFill').style.width = pct + '%';
+    const badge = $('#rankBadge');
+    badge.textContent = rank;
+    badge.style.color = RANK_COLOR[rank] || RANK_COLOR.E;
+
+    $('#profileBlock').innerHTML =
+      '<strong>Level ' + level + '</strong> · Rank ' + rank + ' · ' + totalExp + ' total EXP<br>' +
+      'Next level at ' + nextCeil + ' EXP (' + Math.max(0, nextCeil - totalExp) + ' to go)';
+  }
+
+  function rankFromLevel(level){
+    if(level >= 30) return 'S';
+    if(level >= 20) return 'A';
+    if(level >= 15) return 'B';
+    if(level >= 10) return 'C';
+    if(level >= 5) return 'D';
+    return 'E';
+  }
+
+  function renderStats(){
+    const byKey = {};
+    (STATE.stats||[]).forEach(s => byKey[s.stat] = s);
+    ['STR','INT','VIT','AGI','PER'].forEach(k=>{
+      const s = byKey[k] || { exp:0, level:1 };
+      const level = Number(s.level) || 1;
+      const exp = Number(s.exp) || 0;
+      const curFloor = expForLevel(level);
+      const nextCeil = expForLevel(level+1);
+      const pct = Math.min(100, Math.max(4, ((exp - curFloor) / (nextCeil - curFloor)) * 100));
+      const fillEl = document.querySelector('.stat-fill[data-stat="'+k+'"]');
+      const lvlEl = document.querySelector('[data-statlvl="'+k+'"]');
+      if(fillEl) fillEl.style.width = pct + '%';
+      if(lvlEl) lvlEl.textContent = 'Lv' + level;
+    });
+  }
+
+  function activeGoals(){ return (STATE.goals||[]).filter(g => g.status === 'active'); }
+  function goalById(id){ return (STATE.goals||[]).find(g => g.id === id); }
+  function activePlanForGoal(goalId){
+    return (STATE.plans||[]).filter(p => p.goalId === goalId && p.status === 'active').slice(-1)[0];
+  }
+  function tasksForPlan(planId){ return (STATE.tasks||[]).filter(t => t.weeklyPlanId === planId); }
+
+  function renderDashboard(){
+    $('#todayLabel').textContent = fmtDate(todayISO());
+    const today = todayISO();
+    const todays = (STATE.tasks||[]).filter(t => t.date === today);
+    const list = $('#dashboardList');
+
+    if(!BACKEND_URL){
+      list.innerHTML = '<div class="empty">Connect your Sheet in Settings to begin.</div>';
+      return;
+    }
+    if(todays.length === 0){
+      list.innerHTML = '<div class="empty">No quests scheduled for today. Import a weekly quest log from Main Quests.</div>';
+      return;
+    }
+
+    list.innerHTML = todays.map(t=>{
+      const goal = goalById(t.goalId);
+      const isDone = t.status === 'done';
+      const isSkipped = t.status === 'skipped';
+      const checkCls = isDone ? 'done' : (isSkipped ? 'skipped' : '');
+      const checkGlyph = isDone ? '✓' : (isSkipped ? '×' : '');
+      return '<div class="quest">' +
+        '<div class="quest-check ' + checkCls + '" data-task="' + t.id + '" data-status="' + t.status + '">' + checkGlyph + '</div>' +
+        '<div class="quest-body">' +
+          '<div class="quest-title ' + (isDone?'done':'') + '">' + escapeHtml(t.title) + '</div>' +
+          (t.detail ? '<div class="quest-detail">' + escapeHtml(t.detail) + '</div>' : '') +
+          '<div class="quest-meta">' +
+            (goal ? '<span class="badge">' + escapeHtml(goal.title) + '</span>' : '') +
+            '<span class="badge exp">+' + t.expValue + ' EXP</span>' +
+            (!isDone && !isSkipped ? '<button class="skip-link" data-skip="' + t.id + '">skip</button>' : '') +
+          '</div>' +
+        '</div>' +
+      '</div>';
+    }).join('');
+
+    $$('.quest-check').forEach(el=>{
+      el.addEventListener('click', async ()=>{
+        const id = el.dataset.task;
+        const cur = el.dataset.status;
+        const next = cur === 'done' ? 'pending' : 'done';
+        const res = await apiPost('updateTaskStatus', { taskId:id, status: next });
+        if(applyResult(res) && next === 'done') toast('Quest complete! +EXP');
+      });
+    });
+    $$('.skip-link').forEach(el=>{
+      el.addEventListener('click', async (ev)=>{
+        ev.stopPropagation();
+        const id = el.dataset.skip;
+        const res = await apiPost('updateTaskStatus', { taskId:id, status:'skipped' });
+        applyResult(res);
+      });
+    });
+  }
+
+  function renderGoals(){
+    const list = $('#goalsList');
+    const goals = activeGoals();
+    if(goals.length === 0){
+      list.innerHTML = '<div class="empty">No main quests yet — add one below.</div>';
+      return;
+    }
+    list.innerHTML = goals.map(g=>{
+      const plan = activePlanForGoal(g.id);
+      const tasks = plan ? tasksForPlan(plan.id) : [];
+      const done = tasks.filter(t=>t.status==='done').length;
+      const total = tasks.length;
+      const statColor = { STR:'var(--d)', INT:'var(--c)', VIT:'var(--a)', AGI:'var(--b)', PER:'var(--s)' }[g.category] || 'var(--muted)';
+      return '<div class="goal-card">' +
+        '<div class="goal-top">' +
+          '<div class="goal-title">' + escapeHtml(g.title) + '</div>' +
+          '<div class="goal-cat" style="color:' + statColor + ';border:1px solid ' + statColor + '">' + g.category + '</div>' +
+        '</div>' +
+        (g.targetDetail ? '<div class="goal-detail">' + escapeHtml(g.targetDetail) + '</div>' : '') +
+        (plan
+          ? '<div class="goal-progress">Week ' + fmtDate(plan.weekStart) + ' → ' + fmtDate(plan.weekEnd) + ' · ' + done + '/' + total + ' quests done</div>'
+          : '<div class="goal-progress">No active weekly quest log.</div>') +
+        '<div class="goal-actions">' +
+          '<button class="btn-ghost btn-sm" data-prompt="' + g.id + '">Copy Claude Prompt</button>' +
+          '<button class="btn-ghost btn-sm" data-import="' + g.id + '">Import Week (JSON)</button>' +
+          (plan ? '<button class="btn-ghost btn-sm" data-complete="' + plan.id + '">Complete Week</button>' : '') +
+          '<button class="btn-danger btn-sm" data-archive="' + g.id + '">Archive</button>' +
+        '</div>' +
+      '</div>';
+    }).join('');
+
+    $$('[data-prompt]').forEach(el=> el.addEventListener('click', ()=> openPromptModal(el.dataset.prompt)));
+    $$('[data-import]').forEach(el=> el.addEventListener('click', ()=> openImportModal(el.dataset.import)));
+    $$('[data-complete]').forEach(el=> el.addEventListener('click', async ()=>{
+      const res = await apiPost('completeWeek', { weeklyPlanId: el.dataset.complete });
+      if(res.ok) toast('Week cleared! +' + res.bonus + ' bonus EXP');
+      applyResult(res);
+    }));
+    $$('[data-archive]').forEach(el=> el.addEventListener('click', async ()=>{
+      if(!confirm('Archive this main quest?')) return;
+      const res = await apiPost('deleteGoal', { goalId: el.dataset.archive });
+      applyResult(res);
+    }));
+  }
+
+  function renderHistory(){
+    const completed = (STATE.plans||[]).filter(p => p.status === 'completed');
+    const list = $('#historyList');
+    if(completed.length === 0){
+      list.innerHTML = '<div class="empty">Completed weeks will show up here.</div>';
+      return;
+    }
+    list.innerHTML = completed.slice().reverse().map(p=>{
+      const goal = goalById(p.goalId);
+      const tasks = tasksForPlan(p.id);
+      const done = tasks.filter(t=>t.status==='done').length;
+      const total = tasks.length;
+      return '<div class="quest"><div class="quest-body">' +
+        '<div class="quest-title">' + (goal ? escapeHtml(goal.title) : 'Quest') + '</div>' +
+        '<div class="quest-detail">' + fmtDate(p.weekStart) + ' → ' + fmtDate(p.weekEnd) + ' · ' + done + '/' + total + ' completed</div>' +
+      '</div></div>';
+    }).join('');
+  }
+
+  function escapeHtml(s){
+    return String(s==null?'':s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+
+  // ---------- new goal ----------
+  $('#newGoalBtn').addEventListener('click', ()=>{
+    openModal('New Main Quest', 
+      '<label>Title</label><input type="text" id="mGoalTitle" placeholder="e.g. Strong Arm, Master Azure DevOps">' +
+      '<label>Category</label><select id="mGoalCat">' +
+        Object.entries(STAT_LABELS).map(([k,v])=> '<option value="'+k+'">'+k+' — '+v+'</option>').join('') +
+      '</select>' +
+      '<label>Target / details (optional)</label><textarea id="mGoalDetail" placeholder="e.g. bodyweight bench press, or pass AZ-104 exam" style="font-family:inherit;min-height:60px;"></textarea>' +
+      '<div class="btn-row"><button class="btn-primary btn-block" id="mGoalSave">Create Main Quest</button></div>'
+    );
+    $('#mGoalSave').addEventListener('click', async ()=>{
+      const title = $('#mGoalTitle').value.trim();
+      const category = $('#mGoalCat').value;
+      const targetDetail = $('#mGoalDetail').value.trim();
+      if(!title){ $('#mGoalTitle').focus(); return; }
+      const res = await apiPost('addGoal', { title, category, targetDetail });
+      if(applyResult(res)){ closeModal(); toast('Main Quest registered'); }
+    });
+  });
+
+  // ---------- prompt-for-claude modal ----------
+  function openPromptModal(goalId){
+    const g = goalById(goalId);
+    if(!g) return;
+    const statRow = (STATE.stats||[]).find(s=>s.stat===g.category) || { level:1 };
+    const prompt =
+`I'm playing a "Solo Leveling" style self-improvement game. Here is my long-term Main Quest:
+
+Title: ${g.title}
+Category: ${g.category} (${STAT_LABELS[g.category]})
+Target / details: ${g.targetDetail || '(none specified)'}
+My current ${g.category} stat level: ${statRow.level}
+
+Please generate ONE WEEK of daily tasks ("quests") to help me progress this goal, starting Monday ${nextMonday()}, appropriately challenging for my current level (slightly more demanding than a beginner, adjusted to my stated target).
+
+Respond with ONLY valid JSON in exactly this schema, no extra commentary:
+
+{
+  "goal": "${g.title}",
+  "week_start": "YYYY-MM-DD",
+  "week_end": "YYYY-MM-DD",
+  "days": [
+    { "day": "Mon", "date": "YYYY-MM-DD", "tasks": [ { "title": "short task name", "detail": "specifics — e.g. 3 sets x 20 reps, or the exact topic/module to study", "exp": 10 } ] }
+  ]
+}
+
+Include 1-4 tasks per day for all 7 days (Mon-Sun), exp between 5 and 25 based on task difficulty.`;
+
+    openModal('Prompt for Claude',
+      '<p class="note">Copy this, paste it into a Claude chat, then paste Claude\'s JSON reply back here using <strong>Import Week</strong>.</p>' +
+      '<textarea id="promptText" style="min-height:260px;" readonly>' + escapeHtml(prompt) + '</textarea>' +
+      '<div class="btn-row"><button class="btn-primary btn-block" id="copyPromptBtn">Copy to Clipboard</button></div>'
+    );
+    $('#copyPromptBtn').addEventListener('click', async ()=>{
+      try{
+        await navigator.clipboard.writeText(prompt);
+        toast('Prompt copied');
+      }catch(e){
+        $('#promptText').select();
+        toast('Select-all applied — copy manually');
+      }
+    });
+  }
+
+  // ---------- import week modal ----------
+  function openImportModal(goalId){
+    const g = goalById(goalId);
+    if(!g) return;
+    openModal('Import Weekly Quest Log',
+      '<p class="note">Paste Claude\'s JSON response for <strong>' + escapeHtml(g.title) + '</strong> below.</p>' +
+      '<textarea id="importText" placeholder=\'{"week_start":"...","week_end":"...","days":[...]}\'></textarea>' +
+      '<div class="btn-row"><button class="btn-primary btn-block" id="importSaveBtn">Import</button></div>'
+    );
+    $('#importSaveBtn').addEventListener('click', async ()=>{
+      let parsed;
+      try{ parsed = JSON.parse($('#importText').value); }
+      catch(e){ toast("That isn't valid JSON — copy Claude's full reply and try again"); return; }
+      if(!parsed.days || !Array.isArray(parsed.days)){ toast('JSON is missing a "days" array'); return; }
+      const res = await apiPost('importWeek', {
+        goalId: g.id, weekStart: parsed.week_start, weekEnd: parsed.week_end, days: parsed.days
+      });
+      if(applyResult(res)){ closeModal(); toast('Weekly quest log imported'); }
+    });
+  }
+
+  // ---------- generic modal ----------
+  function openModal(title, bodyHtml){
+    closeModal();
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    overlay.id = 'activeModal';
+    overlay.innerHTML = '<div class="modal"><button class="modal-close" id="modalCloseBtn">×</button><h3 style="margin-bottom:14px;">' + title + '</h3>' + bodyHtml + '</div>';
+    document.body.appendChild(overlay);
+    overlay.addEventListener('click', (e)=>{ if(e.target === overlay) closeModal(); });
+    $('#modalCloseBtn').addEventListener('click', closeModal);
+  }
+  function closeModal(){
+    const m = $('#activeModal');
+    if(m) m.remove();
+  }
+
+  // ---------- settings ----------
+  $('#backendUrlInput').value = BACKEND_URL;
+  $('#saveBackendBtn').addEventListener('click', ()=>{
+    const url = $('#backendUrlInput').value.trim();
+    if(!url) return;
+    BACKEND_URL = url;
+    localStorage.setItem('sl_backend_url', url);
+    toast('Saved — connecting…');
+    loadState();
+  });
+  $('#testBackendBtn').addEventListener('click', async ()=>{
+    const url = $('#backendUrlInput').value.trim();
+    if(!url) return;
+    try{
+      const res = await fetch(url + '?action=ping');
+      const data = await res.json();
+      toast(data.ok ? 'Connection OK' : 'Error: ' + data.error);
+    }catch(e){
+      toast('Connection failed');
+    }
+  });
+
+  // ---------- boot ----------
+  renderAll();
+  loadState();
+
+  if('serviceWorker' in navigator){
+    window.addEventListener('load', ()=>{
+      navigator.serviceWorker.register('sw.js').catch(()=>{});
+    });
+  }
+})();
+</script>
+</body>
+</html>
