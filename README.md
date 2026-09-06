@@ -1,4 +1,3 @@
-Web App URL : https://script.google.com/macros/s/AKfycbxNg488N_QBzRArORmTIIkroZtufFHr4roCBFkXiqzPAUcngDbIwI73gUZdgBres2p2/exec
 
 # Ascend — Solo Leveling Quest Tracker
 

@@ -312,17 +312,17 @@
   function expForLevel(lvl){ return 40 * Math.pow(lvl - 1, 2); }
 
   // ---------- API ----------
-  async function apiGet(action, params){
-    const url = new URL(BACKEND_URL);
-    url.searchParams.set('action', action);
-    Object.entries(params||{}).forEach(([k,v])=> url.searchParams.set(k, v));
-    const res = await fetch(url.toString());
-    return res.json();
-  }
+  // Everything goes through POST — Apps Script's /exec URL issues an
+  // internal redirect on GET that browsers block under CORS when called
+  // from fetch() (even though the same URL works fine typed directly into
+  // the address bar). POST avoids that redirect/CORS interaction entirely.
+  // text/plain content-type keeps this a "simple request" so no CORS
+  // preflight (OPTIONS) is triggered either, which Apps Script doesn't
+  // handle.
   async function apiPost(action, payload){
     const res = await fetch(BACKEND_URL, {
       method:'POST',
-      headers: {'Content-Type':'text/plain;charset=utf-8'}, // avoids a CORS preflight against Apps Script
+      headers: {'Content-Type':'text/plain;charset=utf-8'},
       body: JSON.stringify(Object.assign({ action }, payload || {}))
     });
     return res.json();
@@ -341,7 +341,7 @@
     }
     setConn(null, 'syncing…');
     try{
-      const res = await apiGet('getState');
+      const res = await apiPost('getState');
       if(res.ok){
         prevLevel = STATE.profile ? Number(STATE.profile.level) : 1;
         STATE = res.data;
@@ -667,7 +667,11 @@ Include 1-4 tasks per day for all 7 days (Mon-Sun), exp between 5 and 25 based o
     const url = $('#backendUrlInput').value.trim();
     if(!url) return;
     try{
-      const res = await fetch(url + '?action=ping');
+      const res = await fetch(url, {
+        method:'POST',
+        headers: {'Content-Type':'text/plain;charset=utf-8'},
+        body: JSON.stringify({ action:'ping' })
+      });
       const data = await res.json();
       toast(data.ok ? 'Connection OK' : 'Error: ' + data.error);
     }catch(e){

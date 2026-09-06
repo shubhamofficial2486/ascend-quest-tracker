@@ -153,6 +153,12 @@ function jsonOut(obj) {
   return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
 }
 
+// doGet exists mainly so you can sanity-check the deployment by pasting
+// ?action=ping or ?action=getState straight into a browser address bar.
+// The app itself calls everything via doPost (see below) — GET requests to
+// Apps Script Web Apps go through an internal redirect that browsers often
+// block under CORS when called from fetch(), even though the same URL
+// works fine when you navigate to it directly. POST avoids that.
 function doGet(e) {
   const action = (e.parameter && e.parameter.action) || 'getState';
   ensureSheets();
@@ -176,7 +182,13 @@ function doPost(e) {
   const action = body.action;
 
   try {
-    if (action === 'addGoal') {
+    if (action === 'ping') {
+      return jsonOut({ ok: true, time: new Date().toISOString() });
+
+    } else if (action === 'getState') {
+      return jsonOut({ ok: true, data: getFullState() });
+
+    } else if (action === 'addGoal') {
       const id = Utilities.getUuid();
       appendObject(sheets.goals, {
         id, title: body.title, category: body.category,
