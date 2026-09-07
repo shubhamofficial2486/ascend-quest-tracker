@@ -185,6 +185,7 @@
     <div class="panel">
       <h2>Daily Quest <span class="sub" id="todayLabel"></span></h2>
       <div id="dashboardList"><div class="empty">Connect your Sheet in Settings to begin.</div></div>
+      <button class="btn-ghost btn-block" id="logEventBtn" style="margin-top:14px;">⚡ Log a Special Quest</button>
     </div>
 
     <div class="panel">
@@ -216,6 +217,10 @@
       <h2>Quest Log History</h2>
       <div id="historyList"><div class="empty">Completed weeks will show up here.</div></div>
     </div>
+    <div class="panel">
+      <h2>Special Quests <span class="sub">logged one-off events</span></h2>
+      <div id="eventsList"><div class="empty">Log a trek, workout, study marathon, etc. from the Today tab.</div></div>
+    </div>
   </div>
 
   <!-- ===================== SETTINGS ===================== -->
@@ -241,6 +246,11 @@
         Each Main Quest is tagged with one stat. Completing its daily tasks feeds EXP into that stat — and into your overall Hunter Level.
       </p>
     </div>
+    <div class="panel" style="border-color:rgba(255,92,106,.35);">
+      <h2 style="color:var(--danger);">Danger Zone</h2>
+      <p class="note">Wipes every Main Quest, weekly plan, task, and logged Special Quest, and resets your Hunter profile back to Level 1 / Rank E / 0 EXP. This cannot be undone.</p>
+      <button class="btn-danger btn-block" id="resetAllBtn" style="margin-top:8px;">Reset All Progress</button>
+    </div>
   </div>
 
 </div>
@@ -264,13 +274,12 @@
   const RANK_COLOR = { E:'var(--e)', D:'var(--d)', C:'var(--c)', B:'var(--b)', A:'var(--a)', S:'var(--s)' };
 
   let BACKEND_URL = localStorage.getItem('sl_backend_url') || '';
-  let STATE = { profile:{level:1,totalExp:0,rank:'E'}, stats:[], goals:[], plans:[], tasks:[] };
+  let STATE = { profile:{level:1,totalExp:0,rank:'E'}, stats:[], goals:[], plans:[], tasks:[], events:[] };
   let prevLevel = 1;
 
   const $ = (sel) => document.querySelector(sel);
   const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 
-  // ---------- toast ----------
   function toast(msg, cls){
     const el = document.createElement('div');
     el.className = 'toast' + (cls ? (' ' + cls) : '');
@@ -279,7 +288,6 @@
     setTimeout(()=> el.remove(), 2800);
   }
 
-  // ---------- tabs ----------
   $$('.tab').forEach(btn=>{
     btn.addEventListener('click', ()=>{
       $$('.tab').forEach(b=>b.classList.remove('active'));
@@ -289,21 +297,13 @@
     });
   });
 
-  // ---------- date helpers ----------
   function todayISO(){
     const d = new Date();
     return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
   }
-  function nextMonday(){
-    const d = new Date();
-    const day = d.getDay();
-    const add = day === 1 ? 0 : ((8 - day) % 7 || 7);
-    d.setDate(d.getDate() + (day === 0 ? 1 : add));
-    return d.toISOString().slice(0,10);
-  }
   function fmtDate(iso){
     if(!iso) return '';
-    const datePart = String(iso).slice(0,10); // handles plain 'YYYY-MM-DD' and full ISO timestamps alike
+    const datePart = String(iso).slice(0,10); 
     try{
       const d = new Date(datePart + 'T00:00:00');
       if(isNaN(d.getTime())) return String(iso);
@@ -311,18 +311,9 @@
     }catch(e){ return String(iso); }
   }
 
-  // ---------- level math (mirrors backend) ----------
   function levelFromExp(exp){ return Math.max(1, Math.floor(Math.sqrt(exp/40)) + 1); }
   function expForLevel(lvl){ return 40 * Math.pow(lvl - 1, 2); }
 
-  // ---------- API ----------
-  // Everything goes through POST — Apps Script's /exec URL issues an
-  // internal redirect on GET that browsers block under CORS when called
-  // from fetch() (even though the same URL works fine typed directly into
-  // the address bar). POST avoids that redirect/CORS interaction entirely.
-  // text/plain content-type keeps this a "simple request" so no CORS
-  // preflight (OPTIONS) is triggered either, which Apps Script doesn't
-  // handle.
   async function apiPost(action, payload){
     const res = await fetch(BACKEND_URL, {
       method:'POST',
@@ -371,13 +362,13 @@
     return true;
   }
 
-  // ---------- rendering ----------
   function renderAll(){
     renderProfile();
     renderStats();
     renderDashboard();
     renderGoals();
     renderHistory();
+    renderEvents();
   }
 
   function renderProfile(){
@@ -553,9 +544,161 @@
     }).join('');
   }
 
+  function renderEvents(){
+    const list = $('#eventsList');
+    const events = (STATE.events||[]).slice().reverse();
+    if(events.length === 0){
+      list.innerHTML = '<div class="empty">Log a trek, workout, study marathon, etc. from the Today tab.</div>';
+      return;
+    }
+    const statColor = { STR:'var(--d)', INT:'var(--c)', VIT:'var(--a)', AGI:'var(--b)', PER:'var(--s)' };
+    list.innerHTML = events.map(ev=>{
+      const parts = [];
+      if(Number(ev.durationHours) > 0) parts.push(ev.durationHours + 'h');
+      if(Number(ev.distanceKm) > 0) parts.push(ev.distanceKm + 'km');
+      if(ev.difficulty) parts.push(ev.difficulty);
+      return '<div class="quest"><div class="quest-body">' +
+        '<div class="quest-title">⚡ ' + escapeHtml(ev.title) + '</div>' +
+        '<div class="quest-detail">' + fmtDate(ev.date) + (parts.length ? ' · ' + parts.join(' · ') : '') + (ev.detail ? ' · ' + escapeHtml(ev.detail) : '') + '</div>' +
+        '<div class="quest-meta">' +
+          '<span class="badge" style="color:' + (statColor[ev.category]||'var(--muted)') + ';border-color:' + (statColor[ev.category]||'var(--muted)') + '">' + ev.category + '</span>' +
+          '<span class="badge exp">+' + ev.expValue + ' EXP</span>' +
+        '</div>' +
+      '</div></div>';
+    }).join('');
+  }
+
   function escapeHtml(s){
     return String(s==null?'':s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   }
+
+  // ---------- NEW: Log special quest (Claude JSON workflow) ----------
+  $('#logEventBtn').addEventListener('click', ()=>{
+    openModal('Log a Special Quest',
+      '<p class="note">Enter detailed notes, then copy the prompt. Paste it into Claude, then paste Claude\'s calculated JSON back in the "Import JSON" field below.</p>' +
+      '<div class="panel" style="border-color:#3EA6FF;">' +
+        '<label>Title</label><input type="text" id="mEvTitle" placeholder="e.g. Trek to Eagle Ridge">' +
+        '<label>Stat this benefits</label><select id="mEvCat">' +
+          Object.entries(STAT_LABELS).map(([k,v])=> '<option value="'+k+'">'+k+' — '+v+'</option>').join('') +
+        '</select>' +
+        '<label>Date</label><input type="text" id="mEvDate" value="' + todayISO() + '" placeholder="YYYY-MM-DD">' +
+        '<label>Difficulty Level</label><select id="mEvDifficulty">' +
+          '<option value="Easy">Easy</option><option value="Moderate" selected>Moderate</option><option value="Hard">Hard</option><option value="Extreme">Extreme</option>' +
+        '</select>' +
+        '<label>Start Time & End Time</label>' +
+        '<input type="text" id="mEvStart" placeholder="e.g. 06:00">' +
+        '<input type="text" id="mEvEnd" placeholder="e.g. 10:30" style="margin-top:4px;">' +
+        '<label>Location (if applicable)</label><input type="text" id="mEvLocation" placeholder="e.g. Eagle Ridge Trail, Home Office">' +
+        '<label>Topics completed / Practical implementation done</label>' +
+        '<textarea id="mEvDetail" placeholder="e.g. Finished 3 chapters of Algorithms, implemented a new login system in Node.js, or did 5km run & 3 sets of pushups."></textarea>' +
+        '<div class="btn-row">' +
+          '<button class="btn-ghost btn-block" id="mEvGeneratePrompt">Copy Prompt for Claude</button>' +
+        '</div>' +
+      '</div>' +
+      '<div class="panel" style="border-color:#F5C242; margin-top:12px;">' +
+        '<label>Paste Claude\'s Calculated JSON Here</label>' +
+        '<textarea id="mEvImportJSON" placeholder=\'{"durationHours":4,"distanceKm":12,"expValue":45, "detail":"Claude\'s notes..."}\'></textarea>' +
+        '<div class="btn-row">' +
+          '<button class="btn-primary btn-block" id="mEvSave">Import and Update Stats</button>' +
+        '</div>' +
+      '</div>'
+    );
+
+    // Generate Prompt
+    $('#mEvGeneratePrompt').addEventListener('click', async ()=>{
+      const title = $('#mEvTitle').value.trim();
+      const category = $('#mEvCat').value;
+      const date = $('#mEvDate').value.trim() || todayISO();
+      const difficulty = $('#mEvDifficulty').value;
+      const start = $('#mEvStart').value.trim();
+      const end = $('#mEvEnd').value.trim();
+      const location = $('#mEvLocation').value.trim();
+      const detail = $('#mEvDetail').value.trim();
+
+      if(!title || !detail){ toast('Fill in Title and Details first'); return; }
+
+      const statLevel = (STATE.stats||[]).find(s=>s.stat===category)?.level || 1;
+      
+      const prompt = 
+`I need you to calculate the EXP for a "Special Quest" in my Solo Leveling self-improvement game.
+
+MY CURRENT STAT LEVEL: ${category} is Level ${statLevel}.
+DIFFICULTY: ${difficulty} (Base multiplier: Easy=1, Moderate=1.3, Hard=1.6, Extreme=2.0)
+
+SPECIAL QUEST DETAILS:
+- Title: ${title}
+- Date: ${date}
+- Time spent: ${start} to ${end} (Calculate the hours)
+${location ? '- Location: ' + location + '\n' : ''}- What was done: ${detail}
+
+You must calculate a fair EXP value. The formula is roughly: (Hours * 8) + (Distance in KM * 2), multiplied by difficulty. Use your judgment to adjust it based on specific milestones (e.g., finishing a full book chapter, completing a complex code feature, etc).
+
+Respond with ONLY valid JSON in this schema, no extra commentary:
+{
+  "durationHours": "Calculated number (e.g. 2.5)",
+  "distanceKm": "If movement involved, the distance, else 0",
+  "expValue": "Final EXP amount",
+  "detail": "A short summary of what was achieved including any specific topics or implementations"
+}`;
+
+      try{
+        await navigator.clipboard.writeText(prompt);
+        toast('Prompt copied! Paste into Claude.');
+      }catch(e){
+        alert(prompt); // Fallback if clipboard is blocked
+        toast('Prompt failed to copy, displayed in alert instead.');
+      }
+    });
+
+    // Import JSON and Update
+    $('#mEvSave').addEventListener('click', async ()=>{
+      const title = $('#mEvTitle').value.trim();
+      const category = $('#mEvCat').value;
+      const date = $('#mEvDate').value.trim() || todayISO();
+      const difficulty = $('#mEvDifficulty').value;
+      
+      let parsed;
+      try{ parsed = JSON.parse($('#mEvImportJSON').value); }
+      catch(e){ toast('JSON is not valid. Paste Claude\'s full reply.'); return; }
+
+      if(!title){ toast('Title is missing'); return; }
+
+      const res = await apiPost('addEvent', {
+        title, category, date, difficulty,
+        durationHours: parsed.durationHours || 0,
+        distanceKm: parsed.distanceKm || 0,
+        detail: parsed.detail || $('#mEvDetail').value.trim() || '',
+        expValue: parsed.expValue || 10
+      });
+
+      if(applyResult(res)){
+        closeModal();
+        toast('Special Quest logged — +' + (res.expValue || parsed.expValue) + ' EXP');
+      }
+    });
+  });
+
+  // ---------- reset all progress ----------
+  $('#resetAllBtn').addEventListener('click', ()=>{
+    openModal('Reset All Progress',
+      '<p class="note" style="color:var(--danger);">This permanently deletes every Main Quest, weekly plan, task, and Special Quest, and resets your Hunter profile to Level 1 / Rank E / 0 EXP. There is no undo.</p>' +
+      '<label>Type RESET to confirm</label><input type="text" id="mResetConfirm" placeholder="RESET">' +
+      '<div class="btn-row"><button class="btn-danger btn-block" id="mResetGo">Reset Everything</button></div>'
+    );
+    $('#mResetGo').addEventListener('click', async ()=>{
+      if($('#mResetConfirm').value.trim() !== 'RESET'){ toast('Type RESET exactly to confirm'); return; }
+      const res = await apiPost('resetAll', {});
+      if(res.ok){
+        STATE = res.data;
+        prevLevel = 1;
+        renderAll();
+        closeModal();
+        toast('All progress reset');
+      } else {
+        toast(res.error || 'Reset failed');
+      }
+    });
+  });
 
   // ---------- new goal ----------
   $('#newGoalBtn').addEventListener('click', ()=>{
@@ -577,7 +720,7 @@
     });
   });
 
-  // ---------- prompt-for-claude modal ----------
+  // ---------- prompt-for-claude modal (WEEKLY TASKS) ----------
   function openPromptModal(goalId){
     const g = goalById(goalId);
     if(!g) return;
@@ -621,7 +764,7 @@ Include 1-4 tasks per day for all 7 days (Mon-Sun), exp between 5 and 25 based o
     });
   }
 
-  // ---------- import week modal ----------
+  // ---------- import week modal (WEEKLY TASKS) ----------
   function openImportModal(goalId){
     const g = goalById(goalId);
     if(!g) return;

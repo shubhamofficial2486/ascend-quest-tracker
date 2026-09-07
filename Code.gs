@@ -18,10 +18,23 @@ const SHEET_NAMES = {
   STATS: 'Stats',
   GOALS: 'Goals',
   PLANS: 'WeeklyPlans',
-  TASKS: 'Tasks'
+  TASKS: 'Tasks',
+  EVENTS: 'Events'
 };
 
 const STAT_KEYS = ['STR', 'INT', 'VIT', 'AGI', 'PER'];
+
+// Special Quests now come pre-calculated from Claude, but we keep this as
+// a fallback if no expValue is provided or if it is 0.
+const DIFFICULTY_MULTIPLIER = { Easy: 1, Moderate: 1.3, Hard: 1.6, Extreme: 2 };
+
+function computeEventExp(durationHours, distanceKm, difficulty) {
+  const dur = Math.max(0, Number(durationHours) || 0);
+  const dist = Math.max(0, Number(distanceKm) || 0);
+  const mult = DIFFICULTY_MULTIPLIER[difficulty] || 1;
+  const raw = (dur * 8) + (dist * 2); // 8 exp/hour invested + 2 exp/km covered
+  return Math.max(5, Math.round(raw * mult));
+}
 
 function ensureSheets() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -64,12 +77,20 @@ function ensureSheets() {
     tasks.getRange('J:J').setNumberFormat('@');
   }
 
+  let events = ss.getSheetByName(SHEET_NAMES.EVENTS);
+  if (!events) {
+    events = ss.insertSheet(SHEET_NAMES.EVENTS);
+    events.appendRow(['id', 'title', 'category', 'date', 'durationHours', 'distanceKm', 'difficulty', 'detail', 'expValue', 'createdAt']);
+    events.getRange('D:D').setNumberFormat('@');
+    events.getRange('J:J').setNumberFormat('@');
+  }
+
   const def = ss.getSheetByName('Sheet1');
   if (def && def.getLastRow() === 0 && ss.getSheets().length > 1) {
     ss.deleteSheet(def);
   }
 
-  return { profile, stats, goals, plans, tasks };
+  return { profile, stats, goals, plans, tasks, events };
 }
 
 function sheetToObjects(sheet) {
@@ -87,10 +108,7 @@ function sheetToObjects(sheet) {
   return rows;
 }
 
-// Fields that must never be auto-converted to a Sheets Date type. Prefixing
-// with an apostrophe forces literal text on write (a standard Sheets/Apps
-// Script trick) — this works regardless of the column's display format or
-// whether the tab existed before this fix, unlike setNumberFormat alone.
+// Fields that must never be auto-converted to a Sheets Date type.
 const TEXT_FORCE_FIELDS = new Set(['day', 'date', 'weekStart', 'weekEnd', 'createdAt', 'completedAt', 'updatedAt']);
 
 function coerceForSheet(field, value) {
@@ -158,7 +176,8 @@ function getFullState() {
     stats: sheetToObjects(sheets.stats),
     goals: sheetToObjects(sheets.goals),
     plans: sheetToObjects(sheets.plans),
-    tasks: sheetToObjects(sheets.tasks)
+    tasks: sheetToObjects(sheets.tasks),
+    events: sheetToObjects(sheets.events)
   };
 }
 
@@ -166,14 +185,8 @@ function jsonOut(obj) {
   return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
 }
 
-const CODE_VERSION = 'fix-2-text-dates';
+const CODE_VERSION = 'fix-3-claude-json';
 
-// doGet exists mainly so you can sanity-check the deployment by pasting
-// ?action=ping or ?action=getState straight into a browser address bar.
-// The app itself calls everything via doPost (see below) — GET requests to
-// Apps Script Web Apps go through an internal redirect that browsers often
-// block under CORS when called from fetch(), even though the same URL
-// works fine when you navigate to it directly. POST avoids that.
 function doGet(e) {
   const action = (e.parameter && e.parameter.action) || 'getState';
   ensureSheets();
@@ -213,9 +226,6 @@ function doPost(e) {
       return jsonOut({ ok: true, id, data: getFullState() });
 
     } else if (action === 'importWeek') {
-      // If this goal already has an active plan, archive it first — otherwise
-      // re-importing (or importing a fresh week) leaves the old plan's tasks
-      // sitting alongside the new ones, duplicating everything on Today's Quest.
       const existingActive = sheetToObjects(sheets.plans).filter(p => p.goalId === body.goalId && p.status === 'active');
       existingActive.forEach(p => updateRowByField(sheets.plans, 'id', p.id, { status: 'superseded' }));
 
@@ -287,6 +297,45 @@ function doPost(e) {
 
     } else if (action === 'deleteGoal') {
       updateRowByField(sheets.goals, 'id', body.goalId, { status: 'archived' });
+      return jsonOut({ ok: true, data: getFullState() });
+
+    } else if (action === 'addEvent') {
+      // 🚨 CRITICAL CHANGE: We now trust the `expValue` provided by Claude.
+      // We only fall back to internal calculation if the value is missing.
+      let expValue = Number(body.expValue);
+      
+      // If Claude forgot to include expValue, calculate it server-side
+      if (!expValue || expValue <= 0) {
+        expValue = computeEventExp(body.durationHours, body.distanceKm, body.difficulty);
+      } else {
+        expValue = Math.round(expValue); // ensure it's a whole number
+      }
+      
+      const id = Utilities.getUuid();
+      appendObject(sheets.events, {
+        id, title: body.title, category: body.category, date: body.date,
+        durationHours: Number(body.durationHours) || 0,
+        distanceKm: Number(body.distanceKm) || 0,
+        difficulty: body.difficulty || 'Moderate',
+        detail: body.detail || '',
+        expValue, createdAt: new Date().toISOString()
+      });
+
+      const statsRows = sheetToObjects(sheets.stats);
+      const statRow = statsRows.find(s => s.stat === body.category);
+      const newExp = (statRow ? Number(statRow.exp) : 0) + expValue;
+      updateRowByField(sheets.stats, 'stat', body.category, { exp: newExp });
+
+      const profile = recomputeProfile(sheets);
+      return jsonOut({ ok: true, expValue, profile, data: getFullState() });
+
+    } else if (action === 'resetAll') {
+      [sheets.goals, sheets.plans, sheets.tasks, sheets.events].forEach(sheet => {
+        const lastRow = sheet.getLastRow();
+        if (lastRow > 1) sheet.deleteRows(2, lastRow - 1);
+      });
+      STAT_KEYS.forEach(k => updateRowByField(sheets.stats, 'stat', k, { exp: 0, level: 1 }));
+      sheets.profile.getRange(2, 1, 1, 4).setValues([[1, 0, 'E', new Date().toISOString()]]);
       return jsonOut({ ok: true, data: getFullState() });
 
     } else {
