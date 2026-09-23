@@ -1,4 +1,4 @@
-const CACHE_NAME = 'ascend-shell-v1';
+const CACHE_NAME = 'ascend-shell-v4';
 const SHELL_FILES = [
   './index.html',
   './manifest.json',

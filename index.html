@@ -186,6 +186,7 @@
       <h2>Daily Quest <span class="sub" id="todayLabel"></span></h2>
       <div id="dashboardList"><div class="empty">Connect your Sheet in Settings to begin.</div></div>
       <button class="btn-ghost btn-block" id="logEventBtn" style="margin-top:14px;">⚡ Log a Special Quest</button>
+      <button class="btn-ghost btn-block" id="importEventBtn" style="margin-top:8px;">📥 Import Special Quest (JSON)</button>
     </div>
 
     <div class="panel">
@@ -280,6 +281,7 @@
   const $ = (sel) => document.querySelector(sel);
   const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 
+  // ---------- toast ----------
   function toast(msg, cls){
     const el = document.createElement('div');
     el.className = 'toast' + (cls ? (' ' + cls) : '');
@@ -288,6 +290,7 @@
     setTimeout(()=> el.remove(), 2800);
   }
 
+  // ---------- tabs ----------
   $$('.tab').forEach(btn=>{
     btn.addEventListener('click', ()=>{
       $$('.tab').forEach(b=>b.classList.remove('active'));
@@ -297,13 +300,34 @@
     });
   });
 
+  // ---------- date helpers ----------
   function todayISO(){
     const d = new Date();
     return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
   }
+  function toISODate(d){
+    return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+  }
+  const DOW_NAMES = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  // Weekly quest imports should fill out the rest of THIS week (today
+  // through Sunday) rather than always jumping to next Monday — the full
+  // Mon-Sun week only gets planned when today itself is a Sunday.
+  function getPlanRange(){
+    const now = new Date();
+    const dow = now.getDay(); // 0=Sun..6=Sat
+    if(dow === 0){
+      const start = new Date(now); start.setDate(start.getDate() + 1); // next Monday
+      const end = new Date(start); end.setDate(end.getDate() + 6);     // following Sunday
+      return { start: toISODate(start), end: toISODate(end), dayNames: ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'] };
+    }
+    const end = new Date(now); end.setDate(end.getDate() + (7 - dow)); // this coming Sunday
+    const dayNames = [];
+    for(let i = dow; i <= 7; i++) dayNames.push(DOW_NAMES[i % 7]);     // today's weekday through Sun
+    return { start: toISODate(now), end: toISODate(end), dayNames };
+  }
   function fmtDate(iso){
     if(!iso) return '';
-    const datePart = String(iso).slice(0,10); 
+    const datePart = String(iso).slice(0,10); // handles plain 'YYYY-MM-DD' and full ISO timestamps alike
     try{
       const d = new Date(datePart + 'T00:00:00');
       if(isNaN(d.getTime())) return String(iso);
@@ -311,9 +335,18 @@
     }catch(e){ return String(iso); }
   }
 
+  // ---------- level math (mirrors backend) ----------
   function levelFromExp(exp){ return Math.max(1, Math.floor(Math.sqrt(exp/40)) + 1); }
   function expForLevel(lvl){ return 40 * Math.pow(lvl - 1, 2); }
 
+  // ---------- API ----------
+  // Everything goes through POST — Apps Script's /exec URL issues an
+  // internal redirect on GET that browsers block under CORS when called
+  // from fetch() (even though the same URL works fine typed directly into
+  // the address bar). POST avoids that redirect/CORS interaction entirely.
+  // text/plain content-type keeps this a "simple request" so no CORS
+  // preflight (OPTIONS) is triggered either, which Apps Script doesn't
+  // handle.
   async function apiPost(action, payload){
     const res = await fetch(BACKEND_URL, {
       method:'POST',
@@ -362,6 +395,7 @@
     return true;
   }
 
+  // ---------- rendering ----------
   function renderAll(){
     renderProfile();
     renderStats();
@@ -555,8 +589,6 @@
     list.innerHTML = events.map(ev=>{
       const parts = [];
       if(Number(ev.durationHours) > 0) parts.push(ev.durationHours + 'h');
-      if(Number(ev.distanceKm) > 0) parts.push(ev.distanceKm + 'km');
-      if(ev.difficulty) parts.push(ev.difficulty);
       return '<div class="quest"><div class="quest-body">' +
         '<div class="quest-title">⚡ ' + escapeHtml(ev.title) + '</div>' +
         '<div class="quest-detail">' + fmtDate(ev.date) + (parts.length ? ' · ' + parts.join(' · ') : '') + (ev.detail ? ' · ' + escapeHtml(ev.detail) : '') + '</div>' +
@@ -572,111 +604,115 @@
     return String(s==null?'':s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   }
 
-  // ---------- NEW: Log special quest (Claude JSON workflow) ----------
+  // ---------- log special quest (trek, workout, study marathon, etc.) ----------
+  // Same philosophy as weekly Main Quests: the app collects raw details,
+  // builds a prompt, you paste it into Claude, Claude judges a fair EXP
+  // reward from the actual specifics (terrain, topics, work done — not a
+  // rigid formula), and you import its JSON reply back in.
+  function computeHoursBetween(start, finish){
+    const toMinutes = (t)=>{
+      const m = String(t).match(/(\d{1,2}):(\d{2})/);
+      if(!m) return null;
+      return parseInt(m[1],10)*60 + parseInt(m[2],10);
+    };
+    const s = toMinutes(start), f = toMinutes(finish);
+    if(s == null || f == null) return 0;
+    let diff = f - s;
+    if(diff < 0) diff += 24*60; // crossed midnight
+    return Math.round((diff/60)*10)/10;
+  }
+
+  function buildEventPrompt(d){
+    const timeLine = (d.startTime && d.finishTime)
+      ? `Start time: ${d.startTime}\nFinish time: ${d.finishTime}\nDuration: ${d.durationHours} hours (computed from start/finish)`
+      : `Duration: ${d.durationHours || 0} hours`;
+    return `I'm playing a "Solo Leveling" style self-improvement game and want to log a Special Quest — a one-off event (a trek, a study marathon, a big workout, finishing a chunk of practical work) that should award a bonus EXP reward, bigger than a routine daily quest. Routine daily quests are usually 5-25 EXP; a substantial Special Quest should typically land somewhere around 40-150+ EXP depending on genuine effort, duration, and difficulty — use your judgement based on the specifics below rather than defaulting to a fixed number.
+
+Title: ${d.title}
+Category: ${d.category} (${STAT_LABELS[d.category]})
+Date: ${d.date}
+${timeLine}
+Details: ${d.detail || '(none provided)'}
+
+Respond with ONLY valid JSON in exactly this schema, no extra commentary:
+
+{
+  "title": "${d.title}",
+  "category": "${d.category}",
+  "date": "${d.date}",
+  "durationHours": ${d.durationHours || 0},
+  "detail": "a short one or two sentence summary of what was accomplished",
+  "exp": 0
+}`;
+  }
+
   $('#logEventBtn').addEventListener('click', ()=>{
     openModal('Log a Special Quest',
-      '<p class="note">Enter detailed notes, then copy the prompt. Paste it into Claude, then paste Claude\'s calculated JSON back in the "Import JSON" field below.</p>' +
-      '<div class="panel" style="border-color:#3EA6FF;">' +
-        '<label>Title</label><input type="text" id="mEvTitle" placeholder="e.g. Trek to Eagle Ridge">' +
-        '<label>Stat this benefits</label><select id="mEvCat">' +
-          Object.entries(STAT_LABELS).map(([k,v])=> '<option value="'+k+'">'+k+' — '+v+'</option>').join('') +
-        '</select>' +
-        '<label>Date</label><input type="text" id="mEvDate" value="' + todayISO() + '" placeholder="YYYY-MM-DD">' +
-        '<label>Difficulty Level</label><select id="mEvDifficulty">' +
-          '<option value="Easy">Easy</option><option value="Moderate" selected>Moderate</option><option value="Hard">Hard</option><option value="Extreme">Extreme</option>' +
-        '</select>' +
-        '<label>Start Time & End Time</label>' +
-        '<input type="text" id="mEvStart" placeholder="e.g. 06:00">' +
-        '<input type="text" id="mEvEnd" placeholder="e.g. 10:30" style="margin-top:4px;">' +
-        '<label>Location (if applicable)</label><input type="text" id="mEvLocation" placeholder="e.g. Eagle Ridge Trail, Home Office">' +
-        '<label>Topics completed / Practical implementation done</label>' +
-        '<textarea id="mEvDetail" placeholder="e.g. Finished 3 chapters of Algorithms, implemented a new login system in Node.js, or did 5km run & 3 sets of pushups."></textarea>' +
-        '<div class="btn-row">' +
-          '<button class="btn-ghost btn-block" id="mEvGeneratePrompt">Copy Prompt for Claude</button>' +
-        '</div>' +
-      '</div>' +
-      '<div class="panel" style="border-color:#F5C242; margin-top:12px;">' +
-        '<label>Paste Claude\'s Calculated JSON Here</label>' +
-        '<textarea id="mEvImportJSON" placeholder=\'{"durationHours":4,"distanceKm":12,"expValue":45, "detail":"Claude\'s notes..."}\'></textarea>' +
-        '<div class="btn-row">' +
-          '<button class="btn-primary btn-block" id="mEvSave">Import and Update Stats</button>' +
-        '</div>' +
-      '</div>'
+      '<p class="note">Fill in the details of a one-off event. Claude will calculate a fair EXP reward from the specifics you give it.</p>' +
+      '<label>Title</label><input type="text" id="mEvTitle" placeholder="e.g. Trek to Eagle Ridge">' +
+      '<label>Stat this benefits</label><select id="mEvCat">' +
+        Object.entries(STAT_LABELS).map(([k,v])=> '<option value="'+k+'">'+k+' — '+v+'</option>').join('') +
+      '</select>' +
+      '<label>Date</label><input type="text" id="mEvDate" value="' + todayISO() + '" placeholder="YYYY-MM-DD">' +
+      '<label>Start time (optional)</label><input type="text" id="mEvStart" placeholder="e.g. 06:00">' +
+      '<label>Finish time (optional)</label><input type="text" id="mEvFinish" placeholder="e.g. 11:30">' +
+      '<label>Or total hours spent (if not using start/finish)</label><input type="text" id="mEvHours" placeholder="e.g. 5.5">' +
+      '<label>Details — location, topics covered, practical work done, distance, elevation, whatever\'s relevant</label>' +
+      '<textarea id="mEvDetail" style="min-height:80px;" placeholder="e.g. Eagle Ridge Trail, 12km, 800m elevation gain, carried 8kg pack, light rain"></textarea>' +
+      '<div class="btn-row"><button class="btn-primary btn-block" id="mEvPromptBtn">Generate Prompt for Claude</button></div>'
     );
-
-    // Generate Prompt
-    $('#mEvGeneratePrompt').addEventListener('click', async ()=>{
+    $('#mEvPromptBtn').addEventListener('click', ()=>{
       const title = $('#mEvTitle').value.trim();
+      if(!title){ $('#mEvTitle').focus(); return; }
       const category = $('#mEvCat').value;
       const date = $('#mEvDate').value.trim() || todayISO();
-      const difficulty = $('#mEvDifficulty').value;
-      const start = $('#mEvStart').value.trim();
-      const end = $('#mEvEnd').value.trim();
-      const location = $('#mEvLocation').value.trim();
+      const startTime = $('#mEvStart').value.trim();
+      const finishTime = $('#mEvFinish').value.trim();
+      let durationHours = parseFloat($('#mEvHours').value) || 0;
+      if(startTime && finishTime && !durationHours){
+        durationHours = computeHoursBetween(startTime, finishTime);
+      }
       const detail = $('#mEvDetail').value.trim();
+      const prompt = buildEventPrompt({ title, category, date, startTime, finishTime, durationHours, detail });
 
-      if(!title || !detail){ toast('Fill in Title and Details first'); return; }
-
-      const statLevel = (STATE.stats||[]).find(s=>s.stat===category)?.level || 1;
-      
-      const prompt = 
-`I need you to calculate the EXP for a "Special Quest" in my Solo Leveling self-improvement game.
-
-MY CURRENT STAT LEVEL: ${category} is Level ${statLevel}.
-DIFFICULTY: ${difficulty} (Base multiplier: Easy=1, Moderate=1.3, Hard=1.6, Extreme=2.0)
-
-SPECIAL QUEST DETAILS:
-- Title: ${title}
-- Date: ${date}
-- Time spent: ${start} to ${end} (Calculate the hours)
-${location ? '- Location: ' + location + '\n' : ''}- What was done: ${detail}
-
-You must calculate a fair EXP value. The formula is roughly: (Hours * 8) + (Distance in KM * 2), multiplied by difficulty. Use your judgment to adjust it based on specific milestones (e.g., finishing a full book chapter, completing a complex code feature, etc).
-
-Respond with ONLY valid JSON in this schema, no extra commentary:
-{
-  "durationHours": "Calculated number (e.g. 2.5)",
-  "distanceKm": "If movement involved, the distance, else 0",
-  "expValue": "Final EXP amount",
-  "detail": "A short summary of what was achieved including any specific topics or implementations"
-}`;
-
-      try{
-        await navigator.clipboard.writeText(prompt);
-        toast('Prompt copied! Paste into Claude.');
-      }catch(e){
-        alert(prompt); // Fallback if clipboard is blocked
-        toast('Prompt failed to copy, displayed in alert instead.');
-      }
-    });
-
-    // Import JSON and Update
-    $('#mEvSave').addEventListener('click', async ()=>{
-      const title = $('#mEvTitle').value.trim();
-      const category = $('#mEvCat').value;
-      const date = $('#mEvDate').value.trim() || todayISO();
-      const difficulty = $('#mEvDifficulty').value;
-      
-      let parsed;
-      try{ parsed = JSON.parse($('#mEvImportJSON').value); }
-      catch(e){ toast('JSON is not valid. Paste Claude\'s full reply.'); return; }
-
-      if(!title){ toast('Title is missing'); return; }
-
-      const res = await apiPost('addEvent', {
-        title, category, date, difficulty,
-        durationHours: parsed.durationHours || 0,
-        distanceKm: parsed.distanceKm || 0,
-        detail: parsed.detail || $('#mEvDetail').value.trim() || '',
-        expValue: parsed.expValue || 10
+      openModal('Prompt for Claude',
+        '<p class="note">Copy this, paste into a Claude chat, then paste the JSON reply back using Import.</p>' +
+        '<textarea id="evPromptText" style="min-height:240px;" readonly>' + escapeHtml(prompt) + '</textarea>' +
+        '<div class="btn-row"><button class="btn-primary btn-block" id="evCopyPromptBtn">Copy to Clipboard</button></div>' +
+        '<div class="btn-row"><button class="btn-ghost btn-block" id="evGoImportBtn">I have the JSON — Import Now</button></div>'
+      );
+      $('#evCopyPromptBtn').addEventListener('click', async ()=>{
+        try{ await navigator.clipboard.writeText(prompt); toast('Prompt copied'); }
+        catch(e){ toast('Select-all applied — copy manually'); }
       });
-
-      if(applyResult(res)){
-        closeModal();
-        toast('Special Quest logged — +' + (res.expValue || parsed.expValue) + ' EXP');
-      }
+      $('#evGoImportBtn').addEventListener('click', openImportEventModal);
     });
   });
+
+  function openImportEventModal(){
+    openModal('Import Special Quest',
+      '<p class="note">Paste Claude\'s JSON reply below.</p>' +
+      '<textarea id="evImportText" placeholder=\'{"title":"...","category":"STR","exp":85,...}\'></textarea>' +
+      '<div class="btn-row"><button class="btn-primary btn-block" id="evImportSaveBtn">Import</button></div>'
+    );
+    $('#evImportSaveBtn').addEventListener('click', async ()=>{
+      let parsed;
+      try{ parsed = JSON.parse($('#evImportText').value); }
+      catch(e){ toast("That isn't valid JSON — copy Claude's full reply and try again"); return; }
+      if(!parsed.title || !parsed.category || typeof parsed.exp !== 'number'){
+        toast('JSON is missing required fields (title, category, exp)'); return;
+      }
+      const res = await apiPost('addEvent', {
+        title: parsed.title, category: parsed.category, date: parsed.date || todayISO(),
+        durationHours: parsed.durationHours || 0, detail: parsed.detail || '', expValue: parsed.exp
+      });
+      if(applyResult(res)){
+        closeModal();
+        toast('Special Quest logged — +' + (res.expValue != null ? res.expValue : parsed.exp) + ' EXP');
+      }
+    });
+  }
+  $('#importEventBtn').addEventListener('click', openImportEventModal);
 
   // ---------- reset all progress ----------
   $('#resetAllBtn').addEventListener('click', ()=>{
@@ -720,11 +756,14 @@ Respond with ONLY valid JSON in this schema, no extra commentary:
     });
   });
 
-  // ---------- prompt-for-claude modal (WEEKLY TASKS) ----------
+  // ---------- prompt-for-claude modal ----------
   function openPromptModal(goalId){
     const g = goalById(goalId);
     if(!g) return;
     const statRow = (STATE.stats||[]).find(s=>s.stat===g.category) || { level:1 };
+    const range = getPlanRange();
+    const isPartialWeek = range.dayNames.length < 7;
+    const exampleDay = range.dayNames[0];
     const prompt =
 `I'm playing a "Solo Leveling" style self-improvement game. Here is my long-term Main Quest:
 
@@ -733,20 +772,20 @@ Category: ${g.category} (${STAT_LABELS[g.category]})
 Target / details: ${g.targetDetail || '(none specified)'}
 My current ${g.category} stat level: ${statRow.level}
 
-Please generate ONE WEEK of daily tasks ("quests") to help me progress this goal, starting Monday ${nextMonday()}, appropriately challenging for my current level (slightly more demanding than a beginner, adjusted to my stated target).
+Please generate daily tasks ("quests") to help me progress this goal, covering ${range.start} through ${range.end}${isPartialWeek ? ` (${range.dayNames.length} days — the remaining days of this week, ${range.dayNames.join('/')}, not a full Mon-Sun week since that's already partway through)` : ' (a full Monday-Sunday week)'}, appropriately challenging for my current level (slightly more demanding than a beginner, adjusted to my stated target).
 
 Respond with ONLY valid JSON in exactly this schema, no extra commentary:
 
 {
   "goal": "${g.title}",
-  "week_start": "YYYY-MM-DD",
-  "week_end": "YYYY-MM-DD",
+  "week_start": "${range.start}",
+  "week_end": "${range.end}",
   "days": [
-    { "day": "Mon", "date": "YYYY-MM-DD", "tasks": [ { "title": "short task name", "detail": "specifics — e.g. 3 sets x 20 reps, or the exact topic/module to study", "exp": 10 } ] }
+    { "day": "${exampleDay}", "date": "YYYY-MM-DD", "tasks": [ { "title": "short task name", "detail": "specifics — e.g. 3 sets x 20 reps, or the exact topic/module to study", "exp": 10 } ] }
   ]
 }
 
-Include 1-4 tasks per day for all 7 days (Mon-Sun), exp between 5 and 25 based on task difficulty.`;
+Include 1-4 tasks per day for exactly these ${range.dayNames.length} days (${range.dayNames.join(', ')}), exp between 5 and 25 based on task difficulty. Do not include days outside this range.`;
 
     openModal('Prompt for Claude',
       '<p class="note">Copy this, paste it into a Claude chat, then paste Claude\'s JSON reply back here using <strong>Import Week</strong>.</p>' +
@@ -764,7 +803,7 @@ Include 1-4 tasks per day for all 7 days (Mon-Sun), exp between 5 and 25 based o
     });
   }
 
-  // ---------- import week modal (WEEKLY TASKS) ----------
+  // ---------- import week modal ----------
   function openImportModal(goalId){
     const g = goalById(goalId);
     if(!g) return;
